@@ -17,23 +17,23 @@ from app.calculo import calcular_importes
 MAX_ROWS = 24
 GRADOS = ["R1", "R2", "R3", "R4", "R5"]
 
-# ---- Definición de columnas (usaremos el mismo ancho para encabezado y celdas) ----
+# ---- Definición de columnas (anchos base en caracteres; la 1ª fila se mide y se fija en píxeles) ----
 COLS = [
     {"key": "_idx",       "title": "#",            "width_chars": 3},
     {"key": "dia_ini",    "title": "Día inicio",   "width_chars": 6},
     {"key": "hora_ini",   "title": "Hora ini",     "width_chars": 8},
-    {"key": "tipo_ini",   "title": "Pago ini",     "width_chars": 18},  # N/F/E
+    {"key": "tipo_ini",   "title": "Pago ini",     "width_chars": 18},  # Radios N/F/E
     {"key": "dia_fin",    "title": "Día fin",      "width_chars": 6},
     {"key": "hora_fin",   "title": "Hora fin",     "width_chars": 8},
-    {"key": "tipo_fin",   "title": "Pago fin",     "width_chars": 18},  # N/F/E
+    {"key": "tipo_fin",   "title": "Pago fin",     "width_chars": 18},  # Radios N/F/E
     {"key": "municipio",  "title": "Municipio",    "width_chars": 28},
     {"key": "grado",      "title": "Grado",        "width_chars": 8},
     {"key": "observ",     "title": "Observ.",      "width_chars": 36},
     {"key": "_del",       "title": "",             "width_chars": 8},
 ]
-SPACER_COL = len(COLS)  # columna espaciadora para absorber crecimiento
+SPACER_COL = len(COLS)  # columna espaciadora
 
-# ---- Fallback de municipios (si falta data/municipios_sevilla.csv) ----
+# ---- Fallback de municipios ----
 _MUN_FALLBACK = [
     "Aguadulce","Alanís","Albaida del Aljarafe","Alcalá de Guadaíra","Alcalá del Río",
     "Alcolea del Río","Algámitas","La Algaba","Almadén de la Plata","Almensilla","Arahal",
@@ -107,9 +107,8 @@ class GuardiaGUI(tk.Tk):
         self.geometry("1320x800")
         self.resizable(True, True)
 
-        # Fuente base y mapeo de caracteres -> píxeles para alinear header/celdas
+        # Métrica de fuente (solo para anchura base en chars)
         self._font = tkfont.nametofont("TkDefaultFont")
-        self._col_px = {i: self._chars_to_px(col["width_chars"]) for i, col in enumerate(COLS)}
 
         self.municipios = _load_municipios()
 
@@ -121,13 +120,13 @@ class GuardiaGUI(tk.Tk):
         self.municipio_default_var = tk.StringVar(value=(self.municipios[0] if self.municipios else "Sevilla"))
         self.salida_dir = tk.StringVar(value=str(Path("output").resolve()))
 
+        # Almacena las referencias de frames del header y ancho fijo por columna (en píxeles)
+        self.header_cells = []
+        self.fixed_col_widths = None  # se fija tras medir la primera fila
+
         self._build_header()
         self._build_table()
         self._build_buttons()
-
-    # Conversión: caracteres visuales a píxeles (mismo ancho para encabezado y celda)
-    def _chars_to_px(self, chars: int) -> int:
-        return self._font.measure("0" * max(chars, 1)) + 16  # +padding/borde
 
     # ---- Barra superior ----
     def _build_header(self):
@@ -177,24 +176,23 @@ class GuardiaGUI(tk.Tk):
         mes_entry.bind("<FocusOut>", _refresh_days)
         _refresh_days()
 
-    # ---- Tabla tipo Excel (encabezados y celdas con el MISMO ancho) ----
+    # ---- Tabla tipo Excel ----
     def _build_table(self):
         wrap = ttk.Frame(self, padding=(8,0,8,8))
         wrap.pack(fill=tk.BOTH, expand=True)
 
-        # Encabezado: un frame por columna con ancho fijo en píxeles
+        # Encabezado (sin ancho fijo todavía; se ajustará tras medir 1ª fila)
         self.header = ttk.Frame(wrap)
         self.header.pack(fill=tk.X, pady=(0,2))
-
+        self.header_cells = []
         for c, col in enumerate(COLS):
-            wpx = self._col_px[c]
-            hcell = tk.Frame(self.header, bd=1, relief="solid", width=wpx, height=28)
-            hcell.grid(row=0, column=c, sticky="w")
-            hcell.grid_propagate(False)  # <- CLAVE: no dejar que se estire/encoga
-            ttk.Label(hcell, text=col["title"], anchor="center").pack(fill="both")
+            cell = tk.Frame(self.header, bd=1, relief="solid")  # ancho se fijará luego
+            cell.grid(row=0, column=c, sticky="w")
+            ttk.Label(cell, text=col["title"], anchor="center").pack(fill="both", padx=2, pady=2)
             self.header.grid_columnconfigure(c, weight=0)
+            self.header_cells.append(cell)
 
-        # Espaciadora que absorbe el crecimiento de la ventana
+        # Espaciadora
         tk.Frame(self.header, bd=0).grid(row=0, column=SPACER_COL, sticky="ew")
         self.header.grid_columnconfigure(SPACER_COL, weight=1)
 
@@ -208,13 +206,14 @@ class GuardiaGUI(tk.Tk):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scroll_y.pack(side="right", fill="y")
 
-        # Columnas del cuerpo: fijas + espaciadora
         for c, _ in enumerate(COLS):
             self.rows_frame.grid_columnconfigure(c, weight=0)
         self.rows_frame.grid_columnconfigure(SPACER_COL, weight=1)
 
         self.rows = []
+        # IMPORTANTE: la 1ª fila se crea y luego se miden sus anchos
         self.add_row()
+        self.after(0, self._sync_header_to_first_row)
 
     def _build_buttons(self):
         frm = ttk.Frame(self, padding=8)
@@ -229,84 +228,111 @@ class GuardiaGUI(tk.Tk):
         if d:
             self.salida_dir.set(d)
 
+    # ---- Crear una celda (marco) con ancho fijo si ya lo conocemos ----
+    def _make_cell_frame(self, parent, row_index, col_index, height=30):
+        f = tk.Frame(parent, bd=1, relief="solid")
+        f.grid(row=row_index, column=col_index, sticky="w")
+        if self.fixed_col_widths:
+            f.configure(width=self.fixed_col_widths[col_index], height=height)
+            f.grid_propagate(False)
+        return f
+
+    # ---- Medir 1ª fila y fijar anchos del encabezado + futuras filas ----
+    def _sync_header_to_first_row(self):
+        if not self.rows:
+            return
+        first = self.rows[0]
+        widths = []
+        for col_index in range(len(COLS)):
+            cell_frame = first["cell_frames"][col_index]
+            cell_frame.update_idletasks()
+            widths.append(cell_frame.winfo_reqwidth())
+
+        # Guardar como anchos fijos
+        self.fixed_col_widths = widths[:]
+
+        # Aplicar al header
+        for col_index, w in enumerate(self.fixed_col_widths):
+            hcell = self.header_cells[col_index]
+            hcell.configure(width=w, height=28)
+            hcell.grid_propagate(False)
+
+        # Reaplicar a la fila 0 (para que se ajuste exactamente)
+        for col_index, w in enumerate(self.fixed_col_widths):
+            fr = first["cell_frames"][col_index]
+            fr.configure(width=w, height=30)
+            fr.grid_propagate(False)
+
     # ---- Filas ----
     def add_row(self, preset=None):
         if len(self.rows) >= MAX_ROWS:
             messagebox.showwarning("Límite", f"Máximo {MAX_ROWS} guardias.")
             return
         r = len(self.rows)
-        row_widgets = {}
+        row_widgets = {"cell_frames": []}
 
-        def cell(col_idx, height=30):
-            f = tk.Frame(self.rows_frame, bd=1, relief="solid",
-                         width=self._col_px[col_idx], height=height)
-            f.grid(row=r, column=col_idx, sticky="w")
-            f.grid_propagate(False)  # <- CLAVE
-            return f
-
-        # índice
-        idx = cell(0)
-        ttk.Label(idx, text=str(r+1)).pack(fill="both")
-
-        # helpers
-        def add_ac_combo(col_idx, values, value=""):
-            f = cell(col_idx)
+        # helpers de widgets
+        def add_ac_combo(parent, width_chars, values, value=""):
             var = tk.StringVar(value=value)
-            cb = AutoCompleteCombobox(f, textvariable=var, values=values,
-                                      width=COLS[col_idx]["width_chars"], state="normal")
+            cb = AutoCompleteCombobox(parent, textvariable=var, values=values,
+                                      width=width_chars, state="normal")
             cb.set_completion_list(values)
-            cb.place(relx=0.0, rely=0.5, x=6, anchor="w")  # evitar padding que distorsione
+            cb.pack(padx=4, pady=2, anchor="w")
             return {"var": var, "cb": cb}
 
-        def add_entry(col_idx, value=""):
-            f = cell(col_idx)
+        def add_entry(parent, width_chars, value=""):
             var = tk.StringVar(value=value)
-            ent = ttk.Entry(f, textvariable=var, width=COLS[col_idx]["width_chars"])
-            ent.place(relx=0.0, rely=0.5, x=6, anchor="w")
+            ent = ttk.Entry(parent, textvariable=var, width=width_chars)
+            ent.pack(padx=4, pady=2, anchor="w")
             return var
 
-        def add_combo(col_idx, values, value=""):
-            f = cell(col_idx)
+        def add_combo(parent, width_chars, values, value=""):
             var = tk.StringVar(value=value)
-            cb = ttk.Combobox(f, textvariable=var, values=values,
-                              width=COLS[col_idx]["width_chars"], state="readonly")
-            cb.place(relx=0.0, rely=0.5, x=6, anchor="w")
+            cb = ttk.Combobox(parent, textvariable=var, values=values,
+                              width=width_chars, state="readonly")
+            cb.pack(padx=4, pady=2, anchor="w")
             return var
 
-        def add_tipo_radios(col_idx, value=""):
-            f = cell(col_idx)
+        def add_tipo_radios(parent, value=""):
             var = tk.StringVar(value=value)  # "", "normal", "festivo", "especial"
-            # distribución exacta para no romper el ancho
-            inner = ttk.Frame(f)
-            inner.place(relx=0.0, rely=0.5, x=4, anchor="w")
+            inner = ttk.Frame(parent)
+            inner.pack(padx=2, pady=2, anchor="w")
             ttk.Radiobutton(inner, text="N", value="normal",   variable=var).pack(side=tk.LEFT, padx=2)
             ttk.Radiobutton(inner, text="F", value="festivo",  variable=var).pack(side=tk.LEFT, padx=2)
             ttk.Radiobutton(inner, text="E", value="especial", variable=var).pack(side=tk.LEFT, padx=2)
             def _clear(_e): var.set("")
-            f.bind("<Double-Button-1>", _clear)
+            parent.bind("<Double-Button-1>", _clear)
             return var
+
+        # celdas: crear frames (si ya tenemos fixed_col_widths, se aplican ahora)
+        for col_index in range(len(COLS)):
+            fr = self._make_cell_frame(self.rows_frame, r, col_index)
+            row_widgets["cell_frames"].append(fr)
+
+        # Col 0 índice
+        ttk.Label(row_widgets["cell_frames"][0], text=str(r+1)).pack(padx=4, pady=2, anchor="w")
 
         dias_vals = getattr(self, "dias_mes", [f"{d:02d}" for d in range(1,32)])
         horas_vals = [f"{h:02d}" for h in range(24)]
 
-        row_widgets["dia_ini"]  = add_ac_combo(1, dias_vals, (preset.get("dia_ini","") if preset else ""))
-        row_widgets["hora_ini"] = add_ac_combo(2, horas_vals, (preset.get("hora_ini","") if preset else ""))
-        row_widgets["tipo_ini"] = add_tipo_radios(3, (preset.get("tipo_ini","") if preset else ""))
+        # Widgets en sus celdas
+        row_widgets["dia_ini"]  = add_ac_combo(row_widgets["cell_frames"][1], COLS[1]["width_chars"], dias_vals, (preset.get("dia_ini","") if preset else ""))
+        row_widgets["hora_ini"] = add_ac_combo(row_widgets["cell_frames"][2], COLS[2]["width_chars"], horas_vals, (preset.get("hora_ini","") if preset else ""))
+        row_widgets["tipo_ini"] = add_tipo_radios(row_widgets["cell_frames"][3], (preset.get("tipo_ini","") if preset else ""))
 
-        row_widgets["dia_fin"]  = add_ac_combo(4, dias_vals, (preset.get("dia_fin","") if preset else ""))
-        row_widgets["hora_fin"] = add_ac_combo(5, horas_vals, (preset.get("hora_fin","") if preset else ""))
-        row_widgets["tipo_fin"] = add_tipo_radios(6, (preset.get("tipo_fin","") if preset else ""))
+        row_widgets["dia_fin"]  = add_ac_combo(row_widgets["cell_frames"][4], COLS[4]["width_chars"], dias_vals, (preset.get("dia_fin","") if preset else ""))
+        row_widgets["hora_fin"] = add_ac_combo(row_widgets["cell_frames"][5], COLS[5]["width_chars"], horas_vals, (preset.get("hora_fin","") if preset else ""))
+        row_widgets["tipo_fin"] = add_tipo_radios(row_widgets["cell_frames"][6], (preset.get("tipo_fin","") if preset else ""))
 
-        row_widgets["municipio"] = add_ac_combo(7, self.municipios, (preset.get("municipio","") if preset else ""))
-        row_widgets["grado"] = add_combo(8, GRADOS, (preset.get("grado","") if preset else ""))
-        row_widgets["observaciones"] = add_entry(9, (preset.get("observaciones","") if preset else ""))
+        row_widgets["municipio"] = add_ac_combo(row_widgets["cell_frames"][7], COLS[7]["width_chars"], self.municipios, (preset.get("municipio","") if preset else ""))
+        row_widgets["grado"] = add_combo(row_widgets["cell_frames"][8], COLS[8]["width_chars"], GRADOS, (preset.get("grado","") if preset else ""))
+        row_widgets["observaciones"] = add_entry(row_widgets["cell_frames"][9], COLS[9]["width_chars"], (preset.get("observaciones","") if preset else ""))
 
-        fdel = cell(10)
-        btn = ttk.Button(fdel, text="Borrar", width=COLS[10]["width_chars"], command=lambda i=r: self.delete_row(i))
-        btn.place(relx=0.0, rely=0.5, x=6, anchor="w")
+        btn = ttk.Button(row_widgets["cell_frames"][10], text="Borrar", width=COLS[10]["width_chars"], command=lambda i=r: self.delete_row(i))
+        btn.pack(padx=4, pady=2, anchor="w")
         row_widgets["_btn"] = btn
 
-        # espaciadora
+        # Espaciadora
         tk.Frame(self.rows_frame).grid(row=r, column=SPACER_COL, sticky="ew")
 
         self.rows.append(row_widgets)
@@ -331,6 +357,8 @@ class GuardiaGUI(tk.Tk):
                 else:
                     vals[k] = ""
             self.add_row(preset=vals)
+        # tras reconstruir, asegurar que header sigue alineado
+        self.after(0, self._sync_header_to_first_row)
 
     # ---- CSV <-> DF ----
     def rows_to_df(self):
@@ -414,8 +442,12 @@ class GuardiaGUI(tk.Tk):
             except Exception:
                 preset = {}
             self.add_row(preset=preset)
+
         if len(self.rows) == 0:
             self.add_row()
+
+        # Ajustar encabezados a la nueva primera fila
+        self.after(0, self._sync_header_to_first_row)
 
     def save_csv(self):
         df = self.rows_to_df()
