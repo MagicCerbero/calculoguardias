@@ -15,14 +15,18 @@ from app.calculo import calcular_importes
 MAX_ROWS = 24
 GRADOS = ["R1", "R2", "R3", "R4", "R5"]
 
-VCOLS = [
-    ("dia_ini", "Día inicio", 6),
-    ("hora_ini", "Hora inicio (00-23)", 10),
-    ("dia_fin", "Día fin", 6),
-    ("hora_fin", "Hora fin (00-23)", 10),
-    ("municipio", "Municipio", 16),
-    ("grado", "Grado (R1..R5)", 10),
-    ("observaciones", "Observaciones", 18),
+# Definimos todas las columnas (incluye el # de fila)
+# width = ancho en caracteres para alinear widgets y encabezados
+COLS = [
+    {"key": "_idx",       "title": "#",                       "width": 3},   # solo etiqueta
+    {"key": "dia_ini",    "title": "Día inicio",              "width": 10},  # combo
+    {"key": "hora_ini",   "title": "Hora inicio (00–23)",     "width": 16},  # combo
+    {"key": "dia_fin",    "title": "Día fin",                 "width": 10},  # combo
+    {"key": "hora_fin",   "title": "Hora fin (00–23)",        "width": 16},  # combo
+    {"key": "municipio",  "title": "Municipio",               "width": 20},  # entry
+    {"key": "grado",      "title": "Grado (R1..R5)",          "width": 14},  # combo
+    {"key": "observ",     "title": "Observaciones",           "width": 26},  # entry
+    {"key": "_del",       "title": "",                        "width": 8},   # botón borrar
 ]
 
 class GuardiaGUI(tk.Tk):
@@ -41,6 +45,7 @@ class GuardiaGUI(tk.Tk):
         self._build_table()
         self._build_buttons()
 
+    # ---------- Barra superior ----------
     def _build_header(self):
         frm = ttk.Frame(self, padding=8)
         frm.pack(fill=tk.X)
@@ -67,7 +72,7 @@ class GuardiaGUI(tk.Tk):
         mes_entry.bind("<FocusOut>", _refresh_days)
 
         ttk.Label(frm, text="Municipio por defecto:").pack(side=tk.LEFT)
-        ttk.Entry(frm, textvariable=self.municipio_default_var, width=16).pack(side=tk.LEFT, padx=(4,12))
+        ttk.Entry(frm, textvariable=self.municipio_default_var, width=18).pack(side=tk.LEFT, padx=(4,12))
 
         ttk.Label(frm, text="Salida:").pack(side=tk.LEFT, padx=(8,0))
         out_entry = ttk.Entry(frm, textvariable=self.salida_dir, width=60)
@@ -76,20 +81,24 @@ class GuardiaGUI(tk.Tk):
 
         _refresh_days()
 
+    # ---------- Tabla alineada ----------
     def _build_table(self):
-        self.table_frame = ttk.Frame(self, padding=(8,0,8,8))
-        self.table_frame.pack(fill=tk.BOTH, expand=True)
+        wrap = ttk.Frame(self, padding=(8,0,8,8))
+        wrap.pack(fill=tk.BOTH, expand=True)
 
-        header = ttk.Frame(self.table_frame)
-        header.pack(fill=tk.X)
-        ttk.Label(header, text="#", width=3).grid(row=0, column=0, padx=2, pady=2, sticky="w")
-        for c, (key, title, w) in enumerate(VCOLS, start=1):
-            ttk.Label(header, text=title).grid(row=0, column=c, padx=2, pady=2, sticky="w")
-        ttk.Label(header, text="").grid(row=0, column=len(VCOLS)+1)
+        # Encabezados
+        self.header = ttk.Frame(wrap)
+        self.header.pack(fill=tk.X)
+        for c, col in enumerate(COLS):
+            lbl = ttk.Label(self.header, text=col["title"], anchor="w")
+            lbl.grid(row=0, column=c, sticky="ew", padx=2, pady=(0,4))
+            self.header.grid_columnconfigure(c, weight=1, uniform="cols")
 
-        self.canvas = tk.Canvas(self.table_frame, borderwidth=0)
-        self.scroll_y = ttk.Scrollbar(self.table_frame, orient="vertical", command=self.canvas.yview)
+        # Scrollable body
+        self.canvas = tk.Canvas(wrap, borderwidth=0, highlightthickness=0)
+        self.scroll_y = ttk.Scrollbar(wrap, orient="vertical", command=self.canvas.yview)
         self.rows_frame = ttk.Frame(self.canvas)
+
         self.rows_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.create_window((0, 0), window=self.rows_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scroll_y.set)
@@ -97,6 +106,11 @@ class GuardiaGUI(tk.Tk):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scroll_y.pack(side="right", fill="y")
 
+        # Alinear columnas del body igual que el header
+        for c, col in enumerate(COLS):
+            self.rows_frame.grid_columnconfigure(c, weight=1, uniform="cols")
+
+        # Inicializar filas
         self.rows = []
         self.add_row()
 
@@ -113,46 +127,62 @@ class GuardiaGUI(tk.Tk):
         if d:
             self.salida_dir.set(d)
 
+    # ---------- Filas ----------
     def add_row(self, preset=None):
         if len(self.rows) >= MAX_ROWS:
             messagebox.showwarning("Límite", f"Máximo {MAX_ROWS} guardias.")
             return
-        r = len(self.rows)
-        ttk.Label(self.rows_frame, text=str(r+1)).grid(row=r, column=0, padx=2, pady=2, sticky="w")
 
+        r = len(self.rows)  # índice
         row_widgets = {}
-        col_idx = 1
-        for key, title, w in VCOLS:
-            if key in ("dia_ini","dia_fin"):
-                var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=getattr(self,"dias_mes",[f"{d:02d}" for d in range(1,32)]), width=6, state="readonly")
-                cb.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
-                row_widgets[key] = {"var": var, "cb": cb}
-            elif key in ("hora_ini","hora_fin"):
-                var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=[f"{h:02d}" for h in range(24)], width=6, state="readonly")
-                cb.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
-                row_widgets[key] = {"var": var, "cb": cb}
-            elif key == "grado":
-                var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=GRADOS, width=10, state="readonly")
-                cb.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
-                row_widgets[key] = var
-            else:
-                var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                ent = ttk.Entry(self.rows_frame, textvariable=var, width=w)
-                ent.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
-                row_widgets[key] = var
-            col_idx += 1
 
-        btn = ttk.Button(self.rows_frame, text="Borrar", command=lambda i=r: self.delete_row(i))
-        btn.grid(row=r, column=len(VCOLS)+1, padx=2, pady=2, sticky="w")
+        # Columna 0: índice
+        ttk.Label(self.rows_frame, text=str(r+1)).grid(row=r, column=0, sticky="w", padx=2, pady=2)
+
+        # Helpers para crear widgets con mismo ancho lógico que encabezados
+        def add_combo(col_idx, values, value=""):
+            var = tk.StringVar(value=value)
+            cb = ttk.Combobox(self.rows_frame, textvariable=var, values=values,
+                              width=COLS[col_idx]["width"], state="readonly")
+            cb.grid(row=r, column=col_idx, sticky="w", padx=2, pady=2)
+            return {"var": var, "cb": cb}
+
+        def add_entry(col_idx, value=""):
+            var = tk.StringVar(value=value)
+            ent = ttk.Entry(self.rows_frame, textvariable=var, width=COLS[col_idx]["width"])
+            ent.grid(row=r, column=col_idx, sticky="w", padx=2, pady=2)
+            return var
+
+        # 1: dia_ini, 2: hora_ini, 3: dia_fin, 4: hora_fin
+        row_widgets["dia_ini"]  = add_combo(1, getattr(self, "dias_mes", [f"{d:02d}" for d in range(1,32)]),
+                                            (preset.get("dia_ini","") if preset else ""))
+        row_widgets["hora_ini"] = add_combo(2, [f"{h:02d}" for h in range(24)],
+                                            (preset.get("hora_ini","") if preset else ""))
+        row_widgets["dia_fin"]  = add_combo(3, getattr(self, "dias_mes", [f"{d:02d}" for d in range(1,32)]),
+                                            (preset.get("dia_fin","") if preset else ""))
+        row_widgets["hora_fin"] = add_combo(4, [f"{h:02d}" for h in range(24)],
+                                            (preset.get("hora_fin","") if preset else ""))
+
+        # 5: municipio, 6: grado, 7: observaciones
+        row_widgets["municipio"] = add_entry(5, (preset.get("municipio","") if preset else ""))
+        var_gr = tk.StringVar(value=(preset.get("grado","") if preset else ""))
+        cb_gr = ttk.Combobox(self.rows_frame, textvariable=var_gr, values=GRADOS,
+                             width=COLS[6]["width"], state="readonly")
+        cb_gr.grid(row=r, column=6, sticky="w", padx=2, pady=2)
+        row_widgets["grado"] = var_gr
+        row_widgets["observaciones"] = add_entry(7, (preset.get("observaciones","") if preset else ""))
+
+        # 8: botón borrar
+        btn = ttk.Button(self.rows_frame, text="Borrar", width=COLS[8]["width"], command=lambda i=r: self.delete_row(i))
+        btn.grid(row=r, column=8, sticky="w", padx=2, pady=2)
         row_widgets["_btn"] = btn
+
         self.rows.append(row_widgets)
 
     def delete_row(self, idx):
         if idx < 0 or idx >= len(self.rows):
             return
+        # Re-render completo para mantener índices y alineación
         for child in list(self.rows_frame.children.values()):
             child.destroy()
         del self.rows[idx]
@@ -160,8 +190,10 @@ class GuardiaGUI(tk.Tk):
         self.rows = []
         for preset in tmp:
             vals = {}
+            # Convertir a valores simples
             for k, v in preset.items():
-                if k.startswith("_"): continue
+                if k.startswith("_"):
+                    continue
                 if isinstance(v, dict) and "var" in v:
                     vals[k] = v["var"].get()
                 elif hasattr(v, "get"):
@@ -170,6 +202,7 @@ class GuardiaGUI(tk.Tk):
                     vals[k] = ""
             self.add_row(preset=vals)
 
+    # ---------- CSV <-> DF ----------
     def rows_to_df(self):
         rows = []
         try:
@@ -180,15 +213,15 @@ class GuardiaGUI(tk.Tk):
             return pd.DataFrame(columns=["inicio_datetime","fin_datetime","municipio","grado","observaciones"])
 
         for rw in self.rows:
-            dia_ini = rw["dia_ini"]["var"].get().strip()
+            dia_ini  = rw["dia_ini"]["var"].get().strip()
             hora_ini = rw["hora_ini"]["var"].get().strip()
-            dia_fin = rw["dia_fin"]["var"].get().strip()
+            dia_fin  = rw["dia_fin"]["var"].get().strip()
             hora_fin = rw["hora_fin"]["var"].get().strip()
             municipio = (rw["municipio"].get().strip() if hasattr(rw["municipio"], "get") else "")
             grado = (rw["grado"].get().strip() if hasattr(rw["grado"], "get") else "")
-            observaciones = (rw["observaciones"].get().strip() if hasattr(rw["observaciones"], "get") else "")
+            observ = (rw["observaciones"].get().strip() if hasattr(rw["observaciones"], "get") else "")
 
-            if not any([dia_ini, hora_ini, dia_fin, hora_fin, municipio, grado, observaciones]):
+            if not any([dia_ini, hora_ini, dia_fin, hora_fin, municipio, grado, observ]):
                 continue
             if not municipio:
                 municipio = self.municipio_default_var.get().strip()
@@ -210,7 +243,7 @@ class GuardiaGUI(tk.Tk):
                 "fin_datetime": fin.strftime("%Y-%m-%d %H:%M"),
                 "municipio": municipio,
                 "grado": grado,
-                "observaciones": observaciones,
+                "observaciones": observ,
             })
 
         return pd.DataFrame(rows, columns=["inicio_datetime","fin_datetime","municipio","grado","observaciones"])
@@ -224,6 +257,7 @@ class GuardiaGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo leer el CSV:\n{e}")
             return
+
         for child in list(self.rows_frame.children.values()):
             child.destroy()
         self.rows = []
@@ -258,14 +292,14 @@ class GuardiaGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar:\n{e}")
 
+    # ---------- Ejecutar cálculo ----------
     def run_calc(self):
         df = self.rows_to_df()
         if df.empty:
             messagebox.showwarning("Aviso", "No hay guardias válidas para calcular.")
             return
         try:
-            anio = int(self.anio_var.get())
-            mes = int(self.mes_var.get())
+            anio = int(self.anio_var.get()); mes = int(self.mes_var.get())
         except ValueError:
             messagebox.showerror("Error", "Año/Mes inválidos.")
             return
@@ -274,12 +308,10 @@ class GuardiaGUI(tk.Tk):
             tarifas = CargadorTarifas(Path("config/tarifas.xlsx"))
             cal = CalendarioFestivos(anio=anio, reglas=reglas, municipio_default=self.municipio_default_var.get().strip())
             detalle, resumen = calcular_importes(df, cal, tarifas, reglas, anio=anio, mes=mes)
-            out_dir = Path(self.salida_dir.get().strip())
-            out_dir.mkdir(parents=True, exist_ok=True)
+            out_dir = Path(self.salida_dir.get().strip()); out_dir.mkdir(parents=True, exist_ok=True)
             det_p = out_dir / f"detalle_{anio:04d}-{mes:02d}.csv"
             res_p = out_dir / f"resumen_{anio:04d}-{mes:02d}.csv"
-            escribir_detalle(detalle, det_p)
-            escribir_resumen(resumen, res_p)
+            escribir_detalle(detalle, det_p); escribir_resumen(resumen, res_p)
             messagebox.showinfo("Cálculo completado", f"Se generaron:\n- {det_p}\n- {res_p}")
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error durante el cálculo:\n{e}")
