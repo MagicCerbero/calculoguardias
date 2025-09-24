@@ -3,16 +3,14 @@
 """
 CLI o GUI: cálculo de importe por guardias (MIR).
 - CLI: requiere --anio y --mes
-- GUI: solo necesitas --gui
+- GUI: solo --gui
 """
-
 import argparse
 from pathlib import Path
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--gui', action='store_true', help='Abrir interfaz gráfica')
-    # anio y mes ya no son obligatorios, solo si usas modo CLI
     p.add_argument("--anio", type=int, help="Año de cálculo (2025..2029)")
     p.add_argument("--mes", type=int, help="Mes 1..12")
     p.add_argument("--entrada", type=Path, default=Path("input/guardias_mes.csv"))
@@ -22,13 +20,11 @@ def parse_args():
 
 def main():
     args = parse_args()
-
     if args.gui:
         from app.gui import launch
         launch()
         return
 
-    # --- CLI ---
     if args.anio is None or args.mes is None:
         raise SystemExit("Error: en modo CLI son obligatorios --anio y --mes")
 

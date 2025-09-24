@@ -13,18 +13,14 @@ from app.calendario import CalendarioFestivos
 from app.calculo import calcular_importes
 
 MAX_ROWS = 24
-TIPOS_GUARDIA = ["8h", "12h", "17h", "24h"]
 GRADOS = ["R1", "R2", "R3", "R4", "R5"]
-HORAS = [f"{h:02d}" for h in range(24)]
 
-# Columnas visibles (sin los datetime crudos)
 VCOLS = [
     ("dia_ini", "Día inicio", 6),
     ("hora_ini", "Hora inicio (00-23)", 10),
     ("dia_fin", "Día fin", 6),
     ("hora_fin", "Hora fin (00-23)", 10),
     ("municipio", "Municipio", 16),
-    ("tipo_guardia", "Tipo (8h/12h/17h/24h)", 10),
     ("grado", "Grado (R1..R5)", 10),
     ("observaciones", "Observaciones", 18),
 ]
@@ -55,7 +51,6 @@ class GuardiaGUI(tk.Tk):
         mes_entry = ttk.Entry(frm, textvariable=self.mes_var, width=4)
         mes_entry.pack(side=tk.LEFT, padx=(4,12))
 
-        # Cuando cambia año o mes, refrescar listas de días disponibles
         def _refresh_days(_e=None):
             try:
                 y = int(self.anio_var.get())
@@ -64,7 +59,6 @@ class GuardiaGUI(tk.Tk):
             except Exception:
                 mdays = 31
             self.dias_mes = [f"{d:02d}" for d in range(1, mdays+1)]
-            # Actualizar combos de día en todas las filas
             for rw in getattr(self, "rows", []):
                 if "dia_ini" in rw: rw["dia_ini"]["cb"]["values"] = self.dias_mes
                 if "dia_fin" in rw: rw["dia_fin"]["cb"]["values"] = self.dias_mes
@@ -80,7 +74,6 @@ class GuardiaGUI(tk.Tk):
         out_entry.pack(side=tk.LEFT, padx=(4,4))
         ttk.Button(frm, text="Cambiar...", command=self._select_output_dir).pack(side=tk.LEFT)
 
-        # Inicializar lista de días del mes por defecto
         _refresh_days()
 
     def _build_table(self):
@@ -97,7 +90,6 @@ class GuardiaGUI(tk.Tk):
         self.canvas = tk.Canvas(self.table_frame, borderwidth=0)
         self.scroll_y = ttk.Scrollbar(self.table_frame, orient="vertical", command=self.canvas.yview)
         self.rows_frame = ttk.Frame(self.canvas)
-
         self.rows_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.create_window((0, 0), window=self.rows_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scroll_y.set)
@@ -106,7 +98,7 @@ class GuardiaGUI(tk.Tk):
         self.scroll_y.pack(side="right", fill="y")
 
         self.rows = []
-        self.add_row()  # primera fila
+        self.add_row()
 
     def _build_buttons(self):
         frm = ttk.Frame(self, padding=8)
@@ -133,19 +125,14 @@ class GuardiaGUI(tk.Tk):
         for key, title, w in VCOLS:
             if key in ("dia_ini","dia_fin"):
                 var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=getattr(self, "dias_mes", [f"{d:02d}" for d in range(1,32)]), width=6, state="readonly")
+                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=getattr(self,"dias_mes",[f"{d:02d}" for d in range(1,32)]), width=6, state="readonly")
                 cb.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
                 row_widgets[key] = {"var": var, "cb": cb}
             elif key in ("hora_ini","hora_fin"):
                 var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=HORAS, width=6, state="readonly")
+                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=[f"{h:02d}" for h in range(24)], width=6, state="readonly")
                 cb.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
                 row_widgets[key] = {"var": var, "cb": cb}
-            elif key == "tipo_guardia":
-                var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
-                cb = ttk.Combobox(self.rows_frame, textvariable=var, values=TIPOS_GUARDIA, width=10, state="readonly")
-                cb.grid(row=r, column=col_idx, padx=2, pady=2, sticky="w")
-                row_widgets[key] = var
             elif key == "grado":
                 var = tk.StringVar(value=(preset.get(key, "") if preset else ""))
                 cb = ttk.Combobox(self.rows_frame, textvariable=var, values=GRADOS, width=10, state="readonly")
@@ -161,7 +148,6 @@ class GuardiaGUI(tk.Tk):
         btn = ttk.Button(self.rows_frame, text="Borrar", command=lambda i=r: self.delete_row(i))
         btn.grid(row=r, column=len(VCOLS)+1, padx=2, pady=2, sticky="w")
         row_widgets["_btn"] = btn
-
         self.rows.append(row_widgets)
 
     def delete_row(self, idx):
@@ -173,7 +159,6 @@ class GuardiaGUI(tk.Tk):
         tmp = self.rows[:]
         self.rows = []
         for preset in tmp:
-            # Convertir a dict de valores simples
             vals = {}
             for k, v in preset.items():
                 if k.startswith("_"): continue
@@ -186,61 +171,49 @@ class GuardiaGUI(tk.Tk):
             self.add_row(preset=vals)
 
     def rows_to_df(self):
-        # Construye inicio_datetime y fin_datetime con YYYY-MM-DD HH:00
         rows = []
         try:
             y = int(self.anio_var.get())
             m = int(self.mes_var.get())
         except Exception:
             messagebox.showerror("Error", "Año/Mes inválidos.")
-            return pd.DataFrame(columns=["inicio_datetime","fin_datetime","municipio","tipo_guardia","grado","observaciones"])
+            return pd.DataFrame(columns=["inicio_datetime","fin_datetime","municipio","grado","observaciones"])
 
         for rw in self.rows:
-            vals = {}
-            # Extrae valores
-            vals["dia_ini"] = rw["dia_ini"]["var"].get().strip()
-            vals["hora_ini"] = rw["hora_ini"]["var"].get().strip()
-            vals["dia_fin"] = rw["dia_fin"]["var"].get().strip()
-            vals["hora_fin"] = rw["hora_fin"]["var"].get().strip()
-            vals["municipio"] = (rw["municipio"].get().strip() if hasattr(rw["municipio"], "get") else "")
-            vals["tipo_guardia"] = (rw["tipo_guardia"].get().strip() if hasattr(rw["tipo_guardia"], "get") else "")
-            vals["grado"] = (rw["grado"].get().strip() if hasattr(rw["grado"], "get") else "")
-            vals["observaciones"] = (rw["observaciones"].get().strip() if hasattr(rw["observaciones"], "get") else "")
+            dia_ini = rw["dia_ini"]["var"].get().strip()
+            hora_ini = rw["hora_ini"]["var"].get().strip()
+            dia_fin = rw["dia_fin"]["var"].get().strip()
+            hora_fin = rw["hora_fin"]["var"].get().strip()
+            municipio = (rw["municipio"].get().strip() if hasattr(rw["municipio"], "get") else "")
+            grado = (rw["grado"].get().strip() if hasattr(rw["grado"], "get") else "")
+            observaciones = (rw["observaciones"].get().strip() if hasattr(rw["observaciones"], "get") else "")
 
-            if not any(vals.values()):
+            if not any([dia_ini, hora_ini, dia_fin, hora_fin, municipio, grado, observaciones]):
                 continue
-
-            # Completar municipio por defecto si vacío
-            if not vals["municipio"]:
-                vals["municipio"] = self.municipio_default_var.get().strip()
-
-            # Validación mínima de combos seleccionados
-            if not (vals["dia_ini"] and vals["hora_ini"] and vals["dia_fin"] and vals["hora_fin"]):
-                # fila incompleta: la ignoramos
+            if not municipio:
+                municipio = self.municipio_default_var.get().strip()
+            if not (dia_ini and hora_ini and dia_fin and hora_fin and grado):
                 continue
 
             try:
-                d1 = int(vals["dia_ini"]); h1 = int(vals["hora_ini"])
-                d2 = int(vals["dia_fin"]); h2 = int(vals["hora_fin"])
+                d1 = int(dia_ini); h1 = int(hora_ini)
+                d2 = int(dia_fin); h2 = int(hora_fin)
                 inicio = datetime(y, m, d1, h1, 0)
                 fin = datetime(y, m, d2, h2, 0)
                 if fin <= inicio:
-                    # si alguien introduce fin <= inicio, lo descartamos de momento
                     continue
             except Exception:
-                # fila inválida, la saltamos
                 continue
 
             rows.append({
                 "inicio_datetime": inicio.strftime("%Y-%m-%d %H:%M"),
                 "fin_datetime": fin.strftime("%Y-%m-%d %H:%M"),
-                "municipio": vals["municipio"],
-                "tipo_guardia": vals["tipo_guardia"],
-                "grado": vals["grado"],
-                "observaciones": vals["observaciones"],
+                "municipio": municipio,
+                "grado": grado,
+                "observaciones": observaciones,
             })
 
-        return pd.DataFrame(rows, columns=["inicio_datetime","fin_datetime","municipio","tipo_guardia","grado","observaciones"])
+        return pd.DataFrame(rows, columns=["inicio_datetime","fin_datetime","municipio","grado","observaciones"])
 
     def load_csv(self):
         path = filedialog.askopenfilename(title="Cargar guardias CSV", filetypes=[("CSV","*.csv")])
@@ -251,20 +224,17 @@ class GuardiaGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo leer el CSV:\n{e}")
             return
-        # Reconstruir GUI
         for child in list(self.rows_frame.children.values()):
             child.destroy()
         self.rows = []
         for _, row in df.iterrows():
-            # Parsear inicio/fin para extraer día/hora
             try:
                 ini = datetime.fromisoformat(row["inicio_datetime"].strip())
                 fin = datetime.fromisoformat(row["fin_datetime"].strip())
                 preset = {
                     "dia_ini": f"{ini.day:02d}", "hora_ini": f"{ini.hour:02d}",
                     "dia_fin": f"{fin.day:02d}", "hora_fin": f"{fin.hour:02d}",
-                    "municipio": str(row.get("municipio", "")),
-                    "tipo_guardia": str(row.get("tipo_guardia","")),
+                    "municipio": str(row.get("municipio","")),
                     "grado": str(row.get("grado","")),
                     "observaciones": str(row.get("observaciones","")),
                 }
