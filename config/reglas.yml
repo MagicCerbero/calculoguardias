@@ -1,0 +1,11 @@
+# Reglas de cálculo (2025 en adelante; ampliable hasta 2029)
+# Nota: Los "festivos especiales" se definen por fecha completa (00:00–23:59).
+version: 1
+prioridad_recargos: ["especial", "festivo", "normal"]  # especial > festivo > normal
+resolucion_horas: 60   # minutos por bloque de cálculo (60 = 1h)
+redondeo_monetario_decimales: 4
+aplicar_plus_noche: false  # no hay recargo por noche
+festivos_especiales:
+  - "12-25"   # 25 de diciembre (MM-DD)
+  - "12-31"   # 31 de diciembre (MM-DD)
+# Puedes agregar más fechas especiales a futuro con el mismo formato MM-DD.
